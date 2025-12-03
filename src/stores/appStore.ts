@@ -64,6 +64,9 @@ interface AppState {
   checkMpvInstalled: () => Promise<boolean>;
   moveVideoFile: (oldPath: string, newFolder: string) => Promise<Video>;
   deleteVideo: (videoId: string) => Promise<void>;
+  playPreviousVideo: () => void;
+  playNextVideo: () => void;
+  getCurrentVideoIndex: () => number;
   
   // Actions - Tags
   createTag: (name: string, color: string) => Promise<Tag>;
@@ -313,6 +316,32 @@ export const useAppStore = create<AppState>((set, get) => ({
     await invoke('delete_video', { videoId });
     await get().loadVideos();
     set({ selectedVideo: null, selectedVideoMetadata: null });
+  },
+  
+  getCurrentVideoIndex: () => {
+    const { videos, selectedVideo } = get();
+    if (!selectedVideo) return -1;
+    return videos.findIndex(v => v.id === selectedVideo.id);
+  },
+  
+  playPreviousVideo: () => {
+    const { videos, selectedVideo, openPlayer } = get();
+    if (!selectedVideo) return;
+    
+    const currentIndex = videos.findIndex(v => v.id === selectedVideo.id);
+    if (currentIndex > 0) {
+      openPlayer(videos[currentIndex - 1]);
+    }
+  },
+  
+  playNextVideo: () => {
+    const { videos, selectedVideo, openPlayer } = get();
+    if (!selectedVideo) return;
+    
+    const currentIndex = videos.findIndex(v => v.id === selectedVideo.id);
+    if (currentIndex < videos.length - 1) {
+      openPlayer(videos[currentIndex + 1]);
+    }
   },
   
   // Tags

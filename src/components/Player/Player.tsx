@@ -9,11 +9,23 @@ import {
   Minimize,
   SkipBack,
   SkipForward,
-  Settings
+  ChevronFirst,
+  ChevronLast,
+  AlertCircle,
+  Monitor
 } from 'lucide-react';
 import { convertFileSrc, invoke } from '@tauri-apps/api/core';
+import { useAppStore } from '../../stores/appStore';
 import type { Video } from '../../types';
 import './Player.css';
+
+// Formats supported by HTML5 video
+const HTML5_SUPPORTED_FORMATS = ['mp4', 'webm', 'm4v'];
+
+const isHtml5Supported = (filename: string) => {
+  const ext = filename.split('.').pop()?.toLowerCase() || '';
+  return HTML5_SUPPORTED_FORMATS.includes(ext);
+};
 
 interface PlayerProps {
   video: Video;
@@ -34,8 +46,44 @@ export function Player({ video, onClose }: PlayerProps) {
   const [showControls, setShowControls] = useState(true);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [showSettings, setShowSettings] = useState(false);
+  const [buffered, setBuffered] = useState(0);
+  const [hoverTime, setHoverTime] = useState<number | null>(null);
+  const [hoverPosition, setHoverPosition] = useState(0);
   
   const controlsTimeoutRef = useRef<number | undefined>(undefined);
+  
+  const { 
+    videos, 
+    playPreviousVideo, 
+    playNextVideo, 
+    getCurrentVideoIndex,
+    playWithMpv,
+    checkMpvInstalled,
+  } = useAppStore();
+  
+  const currentIndex = getCurrentVideoIndex();
+  const hasPrevious = currentIndex > 0;
+  const hasNext = currentIndex < videos.length - 1;
+  const isSupported = isHtml5Supported(video.filename);
+  const [videoError, setVideoError] = useState(false);
+  const [mpvInstalled, setMpvInstalled] = useState(false);
+  
+  useEffect(() => {
+    checkMpvInstalled().then(setMpvInstalled);
+  }, []);
+  
+  useEffect(() => {
+    setVideoError(false);
+  }, [video.id]);
+  
+  const handleOpenInMpv = async () => {
+    try {
+      await playWithMpv(video);
+      onClose();
+    } catch (err) {
+      console.error('Failed to open in mpv:', err);
+    }
+  };
 
   // Load saved playback position
   useEffect(() => {
@@ -83,11 +131,19 @@ export function Player({ video, onClose }: PlayerProps) {
           break;
         case 'ArrowLeft':
           e.preventDefault();
-          skip(-10);
+          if (e.shiftKey) {
+            playPreviousVideo();
+          } else {
+            skip(-10);
+          }
           break;
         case 'ArrowRight':
           e.preventDefault();
-          skip(10);
+          if (e.shiftKey) {
+            playNextVideo();
+          } else {
+            skip(10);
+          }
           break;
         case 'ArrowUp':
           e.preventDefault();
@@ -111,6 +167,14 @@ export function Player({ video, onClose }: PlayerProps) {
           } else {
             onClose();
           }
+          break;
+        case 'n':
+          e.preventDefault();
+          playNextVideo();
+          break;
+        case 'p':
+          e.preventDefault();
+          playPreviousVideo();
           break;
       }
     };
@@ -173,6 +237,15 @@ export function Player({ video, onClose }: PlayerProps) {
     videoRef.current.currentTime = percent * duration;
   };
 
+  const handleProgressHover = (e: React.MouseEvent<HTMLDivElement>) => {
+    if (!progressRef.current) return;
+    
+    const rect = progressRef.current.getBoundingClientRect();
+    const percent = (e.clientX - rect.left) / rect.width;
+    setHoverTime(percent * duration);
+    setHoverPosition(e.clientX - rect.left);
+  };
+
   const handleVolumeChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const value = parseFloat(e.target.value);
     setVolume(value);
@@ -195,7 +268,17 @@ export function Player({ video, onClose }: PlayerProps) {
     setShowSettings(false);
   };
 
+  const handleProgress = () => {
+    if (videoRef.current) {
+      const bufferedEnd = videoRef.current.buffered.length > 0
+        ? videoRef.current.buffered.end(videoRef.current.buffered.length - 1)
+        : 0;
+      setBuffered((bufferedEnd / duration) * 100);
+    }
+  };
+
   const formatTime = (seconds: number) => {
+    if (!isFinite(seconds)) return '0:00';
     const h = Math.floor(seconds / 3600);
     const m = Math.floor((seconds % 3600) / 60);
     const s = Math.floor(seconds % 60);
@@ -220,6 +303,14 @@ export function Player({ video, onClose }: PlayerProps) {
     }
   };
 
+  const handleVideoEnd = () => {
+    setIsPlaying(false);
+    // Auto play next video
+    if (hasNext) {
+      setTimeout(() => playNextVideo(), 1500);
+    }
+  };
+
   const videoSrc = convertFileSrc(video.path);
 
   return (
@@ -238,8 +329,13 @@ export function Player({ video, onClose }: PlayerProps) {
         onPause={() => setIsPlaying(false)}
         onTimeUpdate={() => setCurrentTime(videoRef.current?.currentTime || 0)}
         onLoadedMetadata={() => setDuration(videoRef.current?.duration || 0)}
-        onEnded={() => setIsPlaying(false)}
+        onProgress={handleProgress}
+        onEnded={handleVideoEnd}
       />
+      
+      {/* Gradient overlay for better visibility */}
+      <div className={`player-gradient-top ${showControls ? '' : 'hidden'}`} />
+      <div className={`player-gradient-bottom ${showControls ? '' : 'hidden'}`} />
       
       {/* Close Button */}
       <button className={`player-close-btn ${showControls ? '' : 'hidden'}`} onClick={onClose}>
@@ -248,10 +344,20 @@ export function Player({ video, onClose }: PlayerProps) {
 
       {/* Center Play Button (when paused) */}
       {!isPlaying && (
-        <button className="player-center-play" onClick={togglePlay}>
-          <Play size={48} fill="white" />
-        </button>
+        <div className="player-center-overlay" onClick={togglePlay}>
+          <button className="player-center-play">
+            <Play size={48} fill="white" />
+          </button>
+        </div>
       )}
+
+      {/* Video Title & Info */}
+      <div className={`player-header ${showControls ? '' : 'hidden'}`}>
+        <div className="player-title">{video.filename}</div>
+        <div className="player-subtitle">
+          {currentIndex + 1} / {videos.length}
+        </div>
+      </div>
 
       {/* Controls */}
       <div className={`player-controls ${showControls ? '' : 'hidden'}`}>
@@ -260,7 +366,13 @@ export function Player({ video, onClose }: PlayerProps) {
           ref={progressRef}
           className="player-progress"
           onClick={handleProgressClick}
+          onMouseMove={handleProgressHover}
+          onMouseLeave={() => setHoverTime(null)}
         >
+          <div 
+            className="player-progress-buffered"
+            style={{ width: `${buffered}%` }}
+          />
           <div 
             className="player-progress-filled"
             style={{ width: `${(currentTime / duration) * 100}%` }}
@@ -269,47 +381,87 @@ export function Player({ video, onClose }: PlayerProps) {
             className="player-progress-handle"
             style={{ left: `${(currentTime / duration) * 100}%` }}
           />
+          {hoverTime !== null && (
+            <div 
+              className="player-progress-tooltip"
+              style={{ left: `${hoverPosition}px` }}
+            >
+              {formatTime(hoverTime)}
+            </div>
+          )}
         </div>
 
         <div className="player-controls-row">
           <div className="player-controls-left">
-            <button className="control-btn" onClick={togglePlay}>
-              {isPlaying ? <Pause size={20} /> : <Play size={20} />}
-            </button>
-            <button className="control-btn" onClick={() => skip(-10)}>
-              <SkipBack size={18} />
-            </button>
-            <button className="control-btn" onClick={() => skip(10)}>
-              <SkipForward size={18} />
+            {/* Previous Video */}
+            <button 
+              className={`control-btn ${!hasPrevious ? 'disabled' : ''}`} 
+              onClick={playPreviousVideo}
+              disabled={!hasPrevious}
+              title="이전 영상 (P)"
+            >
+              <ChevronFirst size={22} />
             </button>
             
+            {/* Skip Back */}
+            <button className="control-btn" onClick={() => skip(-10)} title="10초 뒤로">
+              <SkipBack size={20} />
+            </button>
+            
+            {/* Play/Pause */}
+            <button className="control-btn play-pause-btn" onClick={togglePlay}>
+              {isPlaying ? <Pause size={24} /> : <Play size={24} fill="white" />}
+            </button>
+            
+            {/* Skip Forward */}
+            <button className="control-btn" onClick={() => skip(10)} title="10초 앞으로">
+              <SkipForward size={20} />
+            </button>
+            
+            {/* Next Video */}
+            <button 
+              className={`control-btn ${!hasNext ? 'disabled' : ''}`} 
+              onClick={playNextVideo}
+              disabled={!hasNext}
+              title="다음 영상 (N)"
+            >
+              <ChevronLast size={22} />
+            </button>
+            
+            {/* Volume */}
             <div className="volume-control">
               <button className="control-btn" onClick={toggleMute}>
-                {isMuted || volume === 0 ? <VolumeX size={18} /> : <Volume2 size={18} />}
+                {isMuted || volume === 0 ? <VolumeX size={20} /> : <Volume2 size={20} />}
               </button>
-              <input
-                type="range"
-                className="volume-slider"
-                min="0"
-                max="1"
-                step="0.1"
-                value={isMuted ? 0 : volume}
-                onChange={handleVolumeChange}
-              />
+              <div className="volume-slider-container">
+                <input
+                  type="range"
+                  className="volume-slider"
+                  min="0"
+                  max="1"
+                  step="0.05"
+                  value={isMuted ? 0 : volume}
+                  onChange={handleVolumeChange}
+                />
+              </div>
             </div>
 
-            <span className="player-time">
-              {formatTime(currentTime)} / {formatTime(duration)}
-            </span>
+            {/* Time */}
+            <div className="player-time">
+              <span className="time-current">{formatTime(currentTime)}</span>
+              <span className="time-separator">/</span>
+              <span className="time-duration">{formatTime(duration)}</span>
+            </div>
           </div>
 
           <div className="player-controls-right">
-            <div className="settings-container">
+            {/* Playback Speed */}
+            <div className="speed-control">
               <button 
-                className="control-btn"
+                className="control-btn speed-btn"
                 onClick={() => setShowSettings(!showSettings)}
               >
-                <Settings size={18} />
+                {playbackRate}x
               </button>
               {showSettings && (
                 <div className="settings-menu">
@@ -329,18 +481,13 @@ export function Player({ video, onClose }: PlayerProps) {
               )}
             </div>
             
-            <button className="control-btn" onClick={toggleFullscreen}>
-              {isFullscreen ? <Minimize size={18} /> : <Maximize size={18} />}
+            {/* Fullscreen */}
+            <button className="control-btn" onClick={toggleFullscreen} title="전체화면 (F)">
+              {isFullscreen ? <Minimize size={20} /> : <Maximize size={20} />}
             </button>
           </div>
         </div>
       </div>
-
-      {/* Video Title */}
-      <div className={`player-title ${showControls ? '' : 'hidden'}`}>
-        {video.filename}
-      </div>
     </div>
   );
 }
-

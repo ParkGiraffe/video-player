@@ -1,5 +1,5 @@
 import { useEffect, useState, useRef } from 'react';
-import { Play, Film, MoreVertical, Trash2, ExternalLink } from 'lucide-react';
+import { Play, Film, MoreVertical, Trash2, Monitor } from 'lucide-react';
 import { convertFileSrc } from '@tauri-apps/api/core';
 import { useAppStore } from '../../stores/appStore';
 import type { Video } from '../../types';
@@ -44,20 +44,43 @@ export function VideoGrid() {
     return () => observer.disconnect();
   }, [hasMore, isLoading]);
 
+  // Formats supported by HTML5 video
+  const HTML5_SUPPORTED_FORMATS = ['mp4', 'webm', 'm4v'];
+  
+  const isHtml5Supported = (filename: string) => {
+    const ext = filename.split('.').pop()?.toLowerCase() || '';
+    return HTML5_SUPPORTED_FORMATS.includes(ext);
+  };
+  
   const handlePlay = async (video: Video) => {
+    // Use built-in player only for HTML5 supported formats
+    if (isHtml5Supported(video.filename)) {
+      openPlayer(video);
+    } else if (mpvInstalled) {
+      // Use mpv for unsupported formats (MOV, MKV, AVI, etc.)
+      try {
+        await playWithMpv(video);
+      } catch (err) {
+        console.error('mpv failed, trying built-in player:', err);
+        openPlayer(video);
+      }
+    } else {
+      // Fallback to built-in player anyway
+      openPlayer(video);
+    }
+  };
+  
+  const handlePlayWithMpv = async (video: Video) => {
     if (mpvInstalled) {
       try {
         await playWithMpv(video);
       } catch (err) {
-        console.error('mpv failed, falling back to built-in player:', err);
-        openPlayer(video);
+        console.error('mpv failed:', err);
       }
-    } else {
-      openPlayer(video);
     }
   };
 
-  if (isLoading) {
+  if (isLoading && videos.length === 0) {
     return (
       <div className="video-grid-loading">
         <div className="loading-spinner" />
@@ -84,6 +107,7 @@ export function VideoGrid() {
           video={video}
           isSelected={selectedVideo?.id === video.id}
           onPlay={() => handlePlay(video)}
+          onPlayWithMpv={() => handlePlayWithMpv(video)}
           onSelect={() => selectVideo(video)}
           mpvInstalled={mpvInstalled ?? false}
           viewMode={viewMode}
@@ -105,15 +129,16 @@ interface VideoCardProps {
   video: Video;
   isSelected: boolean;
   onPlay: () => void;
+  onPlayWithMpv: () => void;
   onSelect: () => void;
   mpvInstalled: boolean;
   viewMode: 'grid' | 'list';
 }
 
-function VideoCard({ video, isSelected, onPlay, onSelect, mpvInstalled, viewMode }: VideoCardProps) {
+function VideoCard({ video, isSelected, onPlay, onPlayWithMpv, onSelect, mpvInstalled, viewMode }: VideoCardProps) {
   const [thumbnailSrc, setThumbnailSrc] = useState<string | null>(null);
   const [showMenu, setShowMenu] = useState(false);
-  const { deleteVideo, openPlayer } = useAppStore();
+  const { deleteVideo } = useAppStore();
 
   useEffect(() => {
     if (video.thumbnail_path) {
@@ -147,9 +172,9 @@ function VideoCard({ video, isSelected, onPlay, onSelect, mpvInstalled, viewMode
     setShowMenu(false);
   };
 
-  const handleBuiltInPlayer = (e: React.MouseEvent) => {
+  const handleMpvPlay = (e: React.MouseEvent) => {
     e.stopPropagation();
-    openPlayer(video);
+    onPlayWithMpv();
     setShowMenu(false);
   };
 
@@ -191,12 +216,12 @@ function VideoCard({ video, isSelected, onPlay, onSelect, mpvInstalled, viewMode
           {showMenu && (
             <div className="action-menu">
               {mpvInstalled && (
-                <button onClick={handleBuiltInPlayer}>
-                  <ExternalLink size={14} />
-                  <span>내장 플레이어</span>
+                <button onClick={handleMpvPlay}>
+                  <Monitor size={14} />
+                  <span>mpv로 재생</span>
                 </button>
               )}
-              <button onClick={handleDelete}>
+              <button onClick={handleDelete} className="danger">
                 <Trash2 size={14} />
                 <span>제거</span>
               </button>
@@ -237,12 +262,12 @@ function VideoCard({ video, isSelected, onPlay, onSelect, mpvInstalled, viewMode
         {showMenu && (
           <div className="video-menu">
             {mpvInstalled && (
-              <button onClick={handleBuiltInPlayer}>
-                <ExternalLink size={14} />
-                <span>내장 플레이어</span>
+              <button onClick={handleMpvPlay}>
+                <Monitor size={14} />
+                <span>mpv로 재생</span>
               </button>
             )}
-            <button onClick={handleDelete}>
+            <button onClick={handleDelete} className="danger">
               <Trash2 size={14} />
               <span>제거</span>
             </button>
