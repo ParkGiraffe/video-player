@@ -3,10 +3,12 @@
   gap: 16px;
   padding: 20px;
   overflow-y: auto;
+  align-content: start;
 }
 
 .video-grid.grid {
   grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-auto-rows: max-content;
 }
 
 .video-grid.list {
@@ -83,7 +85,7 @@
   cursor: pointer;
   transition: all 0.2s;
   border: 2px solid transparent;
-  min-height: 180px;
+  height: fit-content;
 }
 
 .video-card:hover {
@@ -97,7 +99,8 @@
 
 .video-thumbnail {
   position: relative;
-  aspect-ratio: 16 / 9;
+  width: 100%;
+  height: 140px;
   background: var(--bg-tertiary);
   overflow: hidden;
 }
@@ -203,6 +206,10 @@
 
 .video-info {
   padding: 12px;
+  height: 60px;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
 }
 
 .video-title {

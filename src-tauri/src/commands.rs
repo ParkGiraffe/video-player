@@ -55,6 +55,9 @@ pub fn scan_folder(state: State<AppState>, folder_path: String) -> Result<ScanRe
         .map(|f| f.scan_depth)
         .unwrap_or(2);
     
+    // Clear existing videos from this folder before re-scanning
+    db.clear_folder_videos(&folder_path).map_err(|e| e.to_string())?;
+    
     drop(db); // Release lock before scanning
     
     let scan_result = scanner::scan_folder(&folder_path, scan_depth);
@@ -62,19 +65,13 @@ pub fn scan_folder(state: State<AppState>, folder_path: String) -> Result<ScanRe
     // Save scanned videos to database
     let db = state.db.lock().map_err(|e| e.to_string())?;
     
-    let mut new_count = 0;
     for video in &scan_result.videos {
-        // Check if video already exists
-        let existing = db.get_video_by_path(&video.path).map_err(|e| e.to_string())?;
-        if existing.is_none() {
-            new_count += 1;
-        }
         db.upsert_video(video).map_err(|e| e.to_string())?;
     }
     
     Ok(ScanResult {
         total_videos: scan_result.total_videos,
-        new_videos: new_count,
+        new_videos: scan_result.videos.len(),
         folders: scan_result.folders,
         videos: scan_result.videos,
     })

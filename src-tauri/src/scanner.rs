@@ -4,7 +4,7 @@ use std::fs;
 use crate::models::{Video, FolderNode, ScanResult};
 
 const VIDEO_EXTENSIONS: &[&str] = &[
-    "mp4", "mkv", "avi", "webm", "mov", "wmv", "flv", "m4v", "mpg", "mpeg", "3gp", "ts"
+    "mp4", "mkv", "avi", "webm", "mov", "wmv", "flv", "m4v", "mpg", "mpeg", "3gp"
 ];
 
 const IMAGE_EXTENSIONS: &[&str] = &["jpg", "jpeg", "png", "webp"];

@@ -193,6 +193,13 @@ impl Database {
         Ok(())
     }
     
+    pub fn clear_folder_videos(&self, folder_path: &str) -> Result<()> {
+        let conn = self.conn.lock().unwrap();
+        // Remove all videos that belong to this folder or its subfolders
+        conn.execute("DELETE FROM videos WHERE folder_path LIKE ?1 || '%'", params![folder_path])?;
+        Ok(())
+    }
+    
     // ========== Videos ==========
     
     pub fn upsert_video(&self, video: &Video) -> Result<()> {
